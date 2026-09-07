@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EvoQuest — Evolution Arena</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-top">
+      <div class="stat-bar" id="health-bar" title="Health">
+        <div class="bar-fill" id="health-fill"></div>
+        <span class="bar-label" id="health-label">HP</span>
+      </div>
+      <div class="stat-bar" id="evo-bar" title="Evolution progress">
+        <div class="bar-fill evo" id="evo-fill"></div>
+        <span class="bar-label evo-label" id="evo-label">EVO 0/10</span>
+      </div>
+    </div>
+    <div class="hud-mid">
+      <div class="stage-badge" id="stage-badge">
+        <span class="stage-name" id="stage-name">Amoeba</span>
+        <span class="stage-icon" id="stage-icon">🦠</span>
+      </div>
+    </div>
+    <div class="hud-bottom-right">
+      <div class="hud-stat">Score: <span id="score-val">0</span></div>
+      <div class="hud-stat">Kills: <span id="kills-val">0</span></div>
+      <div class="hud-stat">Stages: <span id="stages-val">1</span></div>
+    </div>
+    <div id="kill-feed"></div>
+  </div>
+
+  <!-- Damage vignette -->
+  <div id="vignette"></div>
+
+  <!-- Start menu -->
+  <div id="menu" class="overlay">
+    <div class="menu-box">
+      <h1 class="title">EVO<span>QUEST</span></h1>
+      <p class="tagline">Eat. Evolve. Dominate.</p>
+      <div class="controls">
+        <h3>How to Play</h3>
+        <ul>
+          <li><b>W</b> — Fly upward</li>
+          <li><b>A / D</b> — Move left / right</li>
+          <li><b>Mouse Aim</b> — Look around</li>
+          <li><b>Click / Space</b> — Attack (projectile)</li>
+          <li><b>E</b> — Dash (burst forward)</li>
+          <li>👁 <b>Eat glowing orbs</b> scattered across the map to grow and evolve.</li>
+          <li>⚔️ <b>Defeat rivals</b> to claim their energy and become the strongest.</li>
+        </ul>
+      </div>
+      <button id="start-btn">Start Evolving ▶</button>
+    </div>
+  </div>
+
+  <!-- Game over screen -->
+  <div id="gameover" class="overlay hidden">
+    <div class="menu-box">
+      <h1 class="title dead">YOU WERE DEVOURED</h1>
+      <p id="go-stats"></p>
+      <button id="restart-btn">Revive & Hunt Again ↺</button>
+    </div>
+  </div>
+
+  <!-- Evolution notice -->
+  <div id="evo-notice" class="hidden">
+    <div class="evo-card">
+      <div class="evo-icon" id="evo-notice-icon">🦠</div>
+      <div class="evo-text">
+        <span class="evo-title">EVOLVED!</span>
+        <span class="evo-sub" id="evo-notice-name">Amoeba</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/stages.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
