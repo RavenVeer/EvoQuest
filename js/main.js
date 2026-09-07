@@ -155,13 +155,13 @@
     const endX = Math.min(world.WORLD_WIDTH, camera.x + W + 100);
 
     ctx.beginPath();
-    ctx.moveTo(startX, world.GROUND_Y);
+    ctx.moveTo(startX - camera.x, world.GROUND_Y - camera.y);
     for (let x = startX; x <= endX; x += 40) {
       const bump = Math.sin(x * 0.01) * 14 + Math.sin(x * 0.004) * 26 + Math.cos(x * 0.002) * 20;
-      ctx.lineTo(x, world.GROUND_Y + bump);
+      ctx.lineTo(x - camera.x, world.GROUND_Y + bump - camera.y);
     }
-    ctx.lineTo(endX, H + 200);
-    ctx.lineTo(startX, H + 200);
+    ctx.lineTo(endX - camera.x, H + 200 - camera.y);
+    ctx.lineTo(startX - camera.x, H + 200 - camera.y);
     ctx.closePath();
     ctx.fill();
 
@@ -169,9 +169,9 @@
     ctx.fillStyle = '#2a3354';
     for (const p of world.platforms) {
       if (p.x + p.w < camera.x - 50 || p.x > camera.x + W + 50) continue;
-      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillRect(p.x - camera.x, p.y - camera.y, p.w, p.h);
       ctx.fillStyle = '#3a4a7a';
-      ctx.fillRect(p.x, p.y, p.w, 5);
+      ctx.fillRect(p.x - camera.x, p.y - camera.y, p.w, 5);
       ctx.fillStyle = '#2a3354';
     }
     ctx.restore();
@@ -572,8 +572,6 @@
     lastT = t;
 
     update(dt, t / 1000);
-
-    // world shake applied to render camera
     render(t / 1000);
 
     Input.endFrame();

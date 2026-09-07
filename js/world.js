@@ -23,7 +23,7 @@ const World = (() => {
         h: 28
       });
     }
-    return { platforms, seeds };
+    return { platforms, seeds, WORLD_WIDTH, GROUND_Y, CEIL_Y };
   }
 
   // Orbs (the "non-player items" you eat to evolve) scattered across the whole map
