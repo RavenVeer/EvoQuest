@@ -1,5 +1,9 @@
-/* Player: flying physics, evolution progression, combat */
+/* Player: flying physics (light gravity), evolution progression, XP, half-XP respawn */
 const Player = (() => {
+
+  const GRAV = 750;          // lighter gravity = floatier flight
+  const THRUST = 1900;
+  const ACCEL = 1100;
 
   function create() {
     const s = Stages.stageAt(0);
@@ -16,7 +20,8 @@ const Player = (() => {
       dmg: s.dmg,
       rate: s.rate,
       speed: s.speed,
-      evo: 0,           // evolution progress toward next stage
+      evo: 0,            // XP progress toward next stage
+      xp: 0,             // lifetime XP (used for half-XP respawn)
       score: 0,
       kills: 0,
       cd: 0,
@@ -25,6 +30,7 @@ const Player = (() => {
       dashDx: 0,
       dashDy: 0,
       flash: 0,
+      invuln: 0,
       alive: true
     };
   }
@@ -32,10 +38,10 @@ const Player = (() => {
   function applyStage(p, idx) {
     p.stageIdx = idx;
     const s = Stages.stageAt(idx);
-    // Grow keeps proportion of current hp; increase max based on current stage
     const newMax = s.maxHp;
+    const heal = Math.max(newMax * 0.4, newMax - p.hp);
     p.maxHp = newMax;
-    p.hp = Math.min(p.hp + newMax * 0.4, newMax);
+    p.hp = Math.min(p.hp + heal, newMax);
     p.r = s.r;
     p.dmg = s.dmg;
     p.rate = s.rate;
@@ -46,16 +52,10 @@ const Player = (() => {
     if (!p.alive) return;
 
     // --- Input / physics ---
-    const thrust = 1900;
-    const accel = 1100;
-    const GRAV = 1400;
-
-    // W: fly up
     if (input.isDown('KeyW')) {
-      p.vy -= thrust * dt;
+      p.vy -= THRUST * dt;
     }
 
-    // A / D: horizontal
     let moveX = 0;
     if (input.isDown('KeyA')) moveX -= 1;
     if (input.isDown('KeyD')) moveX += 1;
@@ -65,33 +65,30 @@ const Player = (() => {
       p.dashing -= dt;
       p.x += p.dashDx * dt;
       p.y += p.dashDy * dt;
-      // keep in bounds
       if (p.x < 30) p.x = 30;
       if (p.x > world.WORLD_WIDTH - 30) p.x = world.WORLD_WIDTH - 30;
       if (p.y < world.CEIL_Y) p.y = world.CEIL_Y;
       if (p.y > world.GROUND_Y - 20) { p.y = world.GROUND_Y - 20; p.dashing = 0; }
     } else {
-      p.vx += moveX * accel * dt;
+      p.vx += moveX * ACCEL * dt;
       p.vy += GRAV * dt;
-
-      // Drag
       p.vx *= 1 - Math.min(1, dt * 3);
       p.vy = Math.max(-900, Math.min(900, p.vy));
 
       p.x += p.vx * dt;
       p.y += p.vy * dt;
 
-      // World bounds
       if (p.x < 30) { p.x = 30; p.vx = Math.max(0, p.vx); }
       if (p.x > world.WORLD_WIDTH - 30) { p.x = world.WORLD_WIDTH - 30; p.vx = Math.min(0, p.vx); }
       if (p.y < world.CEIL_Y) { p.y = world.CEIL_Y; p.vy = Math.max(0, p.vy); }
       if (p.y > world.GROUND_Y - 20) { p.y = world.GROUND_Y - 20; p.vy = 0; }
     }
 
-    // --- Combat cooldowns ---
+    // --- Cooldowns / timers ---
     p.cd -= dt;
     p.dashCd -= dt;
     p.flash = Math.max(0, p.flash - dt);
+    p.invuln = Math.max(0, p.invuln - dt);
 
     // --- Dash ---
     if (input.wasPressed('KeyE') && p.dashCd <= 0) {
@@ -104,7 +101,7 @@ const Player = (() => {
     }
   }
 
-  // Returns true if a shot was fired this frame
+  // Returns a projectile if a shot was fired this frame
   function tryShoot(p, input, world) {
     if (!p.alive || p.cd > 0) return null;
     p.cd = 1 / p.rate;
@@ -119,7 +116,7 @@ const Player = (() => {
     );
   }
 
-  // evolve the player one stage
+  // Advance exactly one stage
   function evolve(p) {
     if (p.stageIdx >= Stages.stageCount() - 1) return false;
     p.stageIdx++;
@@ -130,9 +127,9 @@ const Player = (() => {
 
   function gainEvo(p, amount) {
     p.evo += amount;
+    p.xp += amount;
     p.score += Math.round(amount);
     let evolved = false;
-    // Multi-stage cascade if enough xp
     while (p.evo >= Stages.stageAt(p.stageIdx).xp && p.stageIdx < Stages.stageCount() - 1) {
       p.evo -= Stages.stageAt(p.stageIdx).xp;
       evolve(p);
@@ -142,16 +139,36 @@ const Player = (() => {
   }
 
   function takeDamage(p, dmg, world) {
-    if (!p.alive) return;
+    if (!p.alive || p.invuln > 0) return false;
     p.hp -= dmg;
     p.flash = 0.15;
     AudioSys.sfx.hurt();
     if (p.hp <= 0) {
       p.hp = 0;
       p.alive = false;
-      AudioSys.sfx.gameover();
+      return true;
     }
+    return false;
   }
 
-  return { create, update, tryShoot, gainEvo, takeDamage, applyStage, evolve };
+  // Respawn after being devoured: keep exactly half of lifetime XP,
+  // and rebuild stage/progress from that amount.
+  function respawn(p, world) {
+    const half = Math.floor(p.xp * 0.5);
+    const { stageIdx, evo } = Stages.stageFromXp(half);
+    p.xp = half;
+    applyStage(p, stageIdx);
+    p.evo = evo;
+    p.hp = p.maxHp;
+    p.x = 400;
+    p.y = 300;
+    p.vx = 0;
+    p.vy = 0;
+    p.dashing = 0;
+    p.cd = 0;
+    p.invuln = 2.5;
+    p.alive = true;
+  }
+
+  return { create, update, tryShoot, gainEvo, takeDamage, applyStage, evolve, respawn };
 })();

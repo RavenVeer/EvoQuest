@@ -1,18 +1,18 @@
-/* Entities: rivals (NPCs), projectiles, particles, orbs */
+/* Entities: rivals (NPCs) with food-chain AI, projectiles, particles, floating text */
 const Entities = (() => {
 
-  function makeRival(world, playerStageIdx) {
-    // Rivals spawn at a lower stage than the player's current, scaled over time
-    const stageIdx = Math.max(0, playerStageIdx - 1 - Math.floor(Math.random() * 2));
+  function makeRival(world, stageIdx) {
     const s = Stages.stageAt(stageIdx);
-    const x = 200 + Math.random() * (world.WORLD_WIDTH - 400);
+    const biome = World.biomeForStage(stageIdx);
+    const x = biome ? biome.start + 120 + Math.random() * Math.max(40, biome.end - biome.start - 240) : 300 + Math.random() * (world.WORLD_WIDTH - 600);
     return {
       type: 'rival',
       stageIdx,
-      name: Stages.stageAt(stageIdx).name,
+      rank: stageIdx,
+      name: s.name,
       icon: s.icon,
       x,
-      y: 150 + Math.random() * (world.GROUND_Y - 250),
+      y: 150 + Math.random() * (world.GROUND_Y - 280),
       vx: 0,
       vy: 0,
       r: s.r,
@@ -21,60 +21,132 @@ const Entities = (() => {
       dmg: s.dmg,
       rate: s.rate,
       speed: s.speed,
+      xp: 0,                   // rival XP — lets them evolve up the chain too
       cd: Math.random() * 1.5,
       alive: true,
-      wander: 0,
-      wanderDir: Math.random() < 0.5 ? -1 : 1,
-      flash: 0
+      homeBiomeX: biome ? (biome.start + biome.end) / 2 : world.WORLD_WIDTH / 2,
+      flash: 0,
+      decide: Math.random() * 2,
+      mood: 0                  // 0 wander/hunt-food, 1 hunting prey, 2 fleeing
     };
   }
 
-  function updateRival(r, dt, world, player) {
-    // Wander / chase behavior
-    const dx = player.x - r.x;
-    const dy = player.y - r.y;
-    const dist = Math.hypot(dx, dy);
-    const aggro = dist < 450;
-
-    r.wander -= dt;
-    if (r.wander <= 0) {
-      r.wander = 1.5 + Math.random() * 2;
-      r.wanderDir = Math.random() < 0.5 ? -1 : 1;
-    }
-
-    let ax = 0;
-    if (aggro) {
-      ax = (dx / dist) * r.speed * 2.2;
-    } else {
-      ax = r.wanderDir * r.speed * 0.8;
-    }
-    r.vx += ax * dt * 6;
-    r.vx *= 1 - Math.min(1, dt * 4);
-
-    // Float / pseudo gravity with small hover thrust to stay aloft
-    const hover = dist < 260 ? -dy / (dist || 1) : (r.y > 300 ? -0.4 : 0.6);
-    r.vy += hover * r.speed * dt * 5;
-    r.vy = Math.max(-r.speed, Math.min(r.speed, r.vy));
-    r.y += r.vy * dt * 60;
-    r.x += r.vx * dt * 60;
-
-    // Keep in bounds
-    if (r.x < 40) { r.x = 40; r.vx *= -0.5; }
-    if (r.x > world.WORLD_WIDTH - 40) { r.x = world.WORLD_WIDTH - 40; r.vx *= -0.5; }
-    if (r.y < world.CEIL_Y + 20) r.y = world.CEIL_Y + 20;
-    if (r.y > world.GROUND_Y - 15) { r.y = world.GROUND_Y - 15; r.vy = 0; }
-
-    // Shooting cooldown
-    r.cd -= dt;
-    if (r.cd <= 0 && aggro) {
-      r.cd = 1 / r.rate;
-      return true; // wants to shoot
-    }
-    r.flash = Math.max(0, r.flash - dt);
-    return false;
+  // Refresh stats when a rival evolves a stage
+  function applyStage(r, idx) {
+    const s = Stages.stageAt(idx);
+    r.stageIdx = idx;
+    r.rank = idx;
+    r.name = s.name;
+    r.icon = s.icon;
+    r.r = s.r;
+    r.maxHp = s.maxHp;
+    r.hp = s.maxHp;
+    r.dmg = s.dmg;
+    r.rate = s.rate;
+    r.speed = s.speed;
   }
 
-  function makeProjectile(x, y, ang, dmg, speed, fromPlayer, stageColor) {
+  // ctx: { player, rivals, foods }
+  function updateRival(r, dt, world, ctx) {
+    if (!r.alive) return null;
+
+    const scan = [{ e: ctx.player, rank: ctx.player.stageIdx }];
+    for (const rr of ctx.rivals) {
+      if (rr !== r && rr.alive) scan.push({ e: rr, rank: rr.stageIdx });
+    }
+
+    let nearestThreat = null, ndThreat = Infinity;
+    let nearestPrey = null, ndPrey = Infinity;
+    let nearestFood = null, ndFood = Infinity;
+
+    for (const s of scan) {
+      const dx = s.e.x - r.x, dy = s.e.y - r.y;
+      const d = Math.hypot(dx, dy);
+      if (s.rank > r.rank && d < ndThreat && d < 620) { nearestThreat = s.e; ndThreat = d; }
+      if (s.rank <= r.rank && d < ndPrey && d < 600) { nearestPrey = s.e; ndPrey = d; }
+    }
+    for (const f of ctx.foods) {
+      if (f.taken) continue;
+      const d = Math.hypot(f.x - r.x, f.y - r.y);
+      if (d < ndFood && d < 420) { nearestFood = f; ndFood = d; }
+    }
+
+    r.decide -= dt;
+    const fleeing = nearestThreat && (r.mood === 2 || ndThreat < 300);
+    let fleeingNow = false;
+    if (fleeing) {
+      if (r.decide <= 0) { r.decide = 0.6 + Math.random() * 0.8; }
+      else fleeingNow = true;
+      r.mood = 2;
+    } else {
+      if (nearestPrey && ndPrey < 460) {
+        r.mood = 1;
+      } else if (nearestFood && r.mood !== 1) {
+        r.mood = 0;
+      } else if (nearestPrey) {
+        r.mood = 1;
+      }
+    }
+
+    // Steering: blend behavioral vectors (chase / flee / seek food / wander-home)
+    let tx = 0, ty = 0, active = 0;
+    if (fleeing) {
+      const dx = r.x - nearestThreat.x, dy = r.y - nearestThreat.y;
+      const d = Math.hypot(dx, dy) || 1;
+      tx = dx / d; ty = dy / d * 0.6;
+      active = 1.6;
+    } else if (r.mood === 1 && nearestPrey) {
+      const dx = nearestPrey.x - r.x, dy = nearestPrey.y - r.y;
+      const d = Math.hypot(dx, dy) || 1;
+      tx = dx / d; ty = dy / d * 0.55;
+      active = 1.25;
+    } else if (r.mood === 0 && nearestFood) {
+      const dx = nearestFood.x - r.x, dy = nearestFood.y - r.y;
+      const d = Math.hypot(dx, dy) || 1;
+      tx = dx / d; ty = dy / d * 0.4;
+      active = 0.9;
+    } else {
+      // Wander near home biome
+      const dxHome = r.homeBiomeX - r.x;
+      const drift = Math.sin(r.x * 0.004 + r.stageIdx) * 0.5;
+      tx = drift + dxHome * 0.0006;
+      ty = Math.sin(r.x * 0.003 + r.stageIdx) * 0.3 - (r.y - 320) / 600;
+      active = 0.55;
+    }
+
+    if (fleeingNow) {
+      // hard run: reduce wander smoothing
+      active = 1.6;
+    }
+
+    // Hover baseline toward mid-screen height
+    const hover = (310 - r.y) / 500;
+    const ax = tx * active * r.speed;
+    const ay = (ty * active + hover) * r.speed;
+
+    r.vx += (ax - r.vx) * Math.min(1, dt * 3.2);
+    r.vy += (ay - r.vy) * Math.min(1, dt * 3.2);
+
+    r.x += r.vx * dt * 90;
+    r.y += r.vy * dt * 90;
+
+    // Bounds
+    if (r.x < 40) { r.x = 40; r.vx = Math.abs(r.vx); }
+    if (r.x > world.WORLD_WIDTH - 40) { r.x = world.WORLD_WIDTH - 40; r.vx = -Math.abs(r.vx); }
+    if (r.y < world.CEIL_Y + 24) { r.y = world.CEIL_Y + 24; r.vy = Math.abs(r.vy); }
+    if (r.y > world.GROUND_Y - 20) { r.y = world.GROUND_Y - 20; r.vy = -Math.abs(r.vy); }
+
+    // Shooting: only when hunting (not fleeing) and prey is in range
+    r.cd -= dt;
+    r.flash = Math.max(0, r.flash - dt);
+    if (nearestPrey && r.mood > 0 && !fleeing && ndPrey < 520 && r.cd <= 0) {
+      r.cd = 1 / r.rate;
+      return nearestPrey;
+    }
+    return null;
+  }
+
+  function makeProjectile(x, y, ang, dmg, speed, fromPlayer, stageColor, srcRival) {
     return {
       type: 'proj',
       x, y,
@@ -82,6 +154,7 @@ const Entities = (() => {
       speed,
       dmg,
       fromPlayer,
+      srcRival: srcRival || null,
       color: stageColor || '#7bff5c',
       life: 2.2,
       alive: true
@@ -138,12 +211,12 @@ const Entities = (() => {
     p.life -= dt;
     p.x += Math.cos(p.ang) * p.speed * dt;
     p.y += Math.sin(p.ang) * p.speed * dt;
-    if (p.y > world.GROUND_Y || p.y < world.CEIL_Y || p.x < 0 || p.x > world.WORLD_WIDTH) p.alive = false;
+    if (p.y > world.GROUND_Y - 4 || p.y < world.CEIL_Y || p.x < 0 || p.x > world.WORLD_WIDTH) p.alive = false;
     return p.alive && p.life > 0;
   }
 
   return {
-    makeRival, updateRival,
+    makeRival, applyStage, updateRival,
     makeProjectile, updateProj,
     makeParticles, updateParticle,
     makeFloatingText, updateText
