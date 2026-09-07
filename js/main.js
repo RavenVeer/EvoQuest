@@ -602,6 +602,7 @@
   window.addEventListener('resize', resize);
 
   /* ---------- Boot ---------- */
+  Input.init();
   resize();
   requestAnimationFrame(loop);
 })();
